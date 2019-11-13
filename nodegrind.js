@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-"use strict";
-var profiler = require('v8-profiler-next'),
-	c2ct = require('chrome2calltree'),
-	fs = require('fs'),
-	path = require('path'),
-	memstream = require('memory-streams');
+'use strict'
+var profiler = require('v8-profiler-next')
+
+var c2ct = require('chrome2calltree')
+
+var fs = require('fs')
+
+var path = require('path')
+
+var memstream = require('memory-streams')
 
 /**
  * Simplistic V8 CPU profiler wrapper, WIP
@@ -53,96 +57,103 @@ sample cpuprofile (from Chrome):
 */
 
 function convertProfNode (node) {
-	var res = {
-		functionName: node.functionName,
-		lineNumber: node.lineNumber,
-		callUID: node.callUid,
-		hitCount: node.selfSamplesCount,
-		url: node.scriptName,
-		children: []
-	};
-	for (var i = 0; i < node.childrenCount; i++) {
-		res.children.push(convertProfNode(node.getChild(i)));
-	}
-	return res;
+  var res = {
+    functionName: node.functionName,
+    lineNumber: node.lineNumber,
+    callUID: node.callUid,
+    hitCount: node.selfSamplesCount,
+    url: node.scriptName,
+    children: []
+  }
+  for (var i = 0; i < node.childrenCount; i++) {
+    res.children.push(convertProfNode(node.getChild(i)))
+  }
+  return res
 }
 
 function prof2cpuprofile (prof) {
-    if (process.version > 'v0.11.') {
-        // Nothing to be done
-        return prof;
-    } else {
-        return {
-            head: convertProfNode(prof.topRoot),
-                startTime: 0,
-                endTime: prof.topRoot.totalTime,
-        };
+  if (process.version > 'v0.11.') {
+    // Nothing to be done
+    return prof
+  } else {
+    return {
+      head: convertProfNode(prof.topRoot),
+      startTime: 0,
+      endTime: prof.topRoot.totalTime
     }
+  }
 }
 
 // Start profiling
-function startCPU(name) {
-    return profiler.startProfiling(name);
+function startCPU (name) {
+  return profiler.startProfiling(name)
 }
 
 // End profiling
-function stopCPU(name, format) {
-    var cpuprofile = prof2cpuprofile(profiler.stopProfiling(name));
-    if (format === 'cpuprofile') {
-        return JSON.stringify(cpuprofile);
-    } else {
-        var outStream = new memstream.WritableStream();
-        c2ct.chromeProfileToCallgrind(cpuprofile, outStream);
-        return outStream.toString();
-    }
+function stopCPU (name, format) {
+  var cpuprofile = prof2cpuprofile(profiler.stopProfiling(name))
+  if (format === 'cpuprofile') {
+    return JSON.stringify(cpuprofile)
+  } else {
+    var outStream = new memstream.WritableStream()
+    c2ct.chromeProfileToCallgrind(cpuprofile, outStream)
+    return outStream.toString()
+  }
 }
 
-function main() {
-	// run as utility
-	var argv = require('yargs')
-		.usage('Usage: $0 [--heap] [-o outfile] <example.js> <args>')
-		.default('heap', false)
-		.default('o', 'callgrind.out.' + process.pid)
-		.check(function(argv) {
-			return argv._.length > 0;
-		})
-		.argv;
-	var mainModule = argv._.shift();
-	process.argv.shift();
-    startCPU('global');
+function main () {
+  // run as utility
+  var argv = require('yargs')
+    .usage('Usage: $0 [--heap] [-o outfile] <example.js> <args>')
+    .default('heap', false)
+    .default('o', 'callgrind.out.' + process.pid)
+    .check(function (argv) {
+      return argv._.length > 0
+    }).argv
+  var mainModule = argv._.shift()
+  process.argv.shift()
+  startCPU('global')
 
-	// Stop profiling in an exit handler so that we properly handle async code
-    function writeProfile() {
-        var format;
-        if (/\.cpuprofile$/.test(argv.o)) {
-            format = 'cpuprofile';
-        }
-
-        var prof = stopCPU('global', format);
-		fs.writeFileSync(argv.o, prof);
-		var fname = JSON.stringify(argv.o);
-		console.warn('Profile written to', fname + '\nTry `kcachegrind', fname + '`');
-        process.removeAllListeners('exit');
-        process.exit(0);
-	}
-
-    // Set up callbacks
-	process.on('exit', writeProfile);
-	process.on('SIGTERM', writeProfile);
-	process.on('SIGINT', writeProfile);
-
-	// FIXME: requiring the main app won't work if the app relies on
-	// module.parent being null.
-	var mainFunc = require(path.resolve(mainModule));
-    // But, if it exposes a main method, then try calling it.
-    if (typeof mainFunc === 'function') {
-        mainFunc();
+  // Stop profiling in an exit handler so that we properly handle async code
+  function writeProfile () {
+    var format
+    if (/\.cpuprofile$/.test(argv.o)) {
+      format = 'cpuprofile'
     }
+
+    var prof = stopCPU('global', format)
+    fs.writeFileSync(argv.o, prof)
+    var fname = JSON.stringify(argv.o)
+    console.warn(
+      'Profile written to',
+      fname + '\nTry `kcachegrind',
+      fname + '`'
+    )
+    process.removeAllListeners('exit')
+    process.exit(0)
+  }
+
+  // Set up callbacks
+  process.on('exit', writeProfile)
+  process.on('SIGTERM', writeProfile)
+  process.on('SIGINT', writeProfile)
+
+  // FIXME: requiring the main app won't work if the app relies on
+  // module.parent being null.
+  var mainFunc = require(path.resolve(mainModule))
+  // But, if it exposes a main method, then try calling it.
+  if (typeof mainFunc === 'function') {
+    mainFunc()
+  }
 }
 
 if (module.parent === null && process.argv.length > 1) {
-    main();
+  main()
 }
 
 module.exports = {
-};
+  convertProfNode,
+  prof2cpuprofile,
+  startCPU,
+  stopCPU
+}
